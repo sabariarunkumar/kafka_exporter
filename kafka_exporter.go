@@ -51,13 +51,15 @@ var (
 // the prometheus metrics package.
 type Exporter struct {
 	client                  sarama.Client
+	brokerURIs              []string
 	topicFilter             *regexp.Regexp
 	groupFilter             *regexp.Regexp
 	mu                      sync.Mutex
 	useZooKeeperLag         bool
+	clientConfig            *sarama.Config
 	zookeeperClient         *kazoo.Kazoo
-	nextMetadataRefresh     time.Time
 	metadataRefreshInterval time.Duration
+	nextClientRestart       time.Time
 }
 
 type kafkaOpts struct {
@@ -193,7 +195,6 @@ func NewExporter(opts kafkaOpts, topicFilter string, groupFilter string) (*Expor
 	}
 
 	config.Metadata.RefreshFrequency = interval
-
 	client, err := sarama.NewClient(opts.uri, config)
 
 	if err != nil {
@@ -209,7 +210,8 @@ func NewExporter(opts kafkaOpts, topicFilter string, groupFilter string) (*Expor
 		groupFilter:             regexp.MustCompile(groupFilter),
 		useZooKeeperLag:         opts.useZooKeeperLag,
 		zookeeperClient:         zookeeperClient,
-		nextMetadataRefresh:     time.Now(),
+		clientConfig:            config,
+		brokerURIs:              opts.uri,
 		metadataRefreshInterval: interval,
 	}, nil
 }
@@ -242,19 +244,19 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	)
 
 	offset := make(map[string]map[int32]int64)
-
 	now := time.Now()
-
-	if now.After(e.nextMetadataRefresh) {
-		plog.Info("Refreshing client metadata")
-
-		if err := e.client.RefreshMetadata(); err != nil {
-			plog.Errorf("Cannot refresh topics, using cached data: %v", err)
+	if now.After(e.nextClientRestart) {
+		plog.Info("Restarting client")
+		e.client.Close()
+		client, err := sarama.NewClient(e.brokerURIs, e.clientConfig)
+		if err != nil {
+			plog.Errorln("Error restarting Kafka Client")
+			panic(err)
 		}
-
-		e.nextMetadataRefresh = now.Add(e.metadataRefreshInterval)
+		plog.Infoln("Done restarting Kafka Clients")
+		e.client = client
+		e.nextClientRestart = now.Add(time.Hour * 24)
 	}
-
 	topics, err := e.client.Topics()
 	if err != nil {
 		plog.Errorf("Cannot get topics: %v", err)
