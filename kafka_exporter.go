@@ -255,7 +255,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		}
 		plog.Infoln("Done restarting Kafka Clients")
 		e.client = client
-		e.nextClientRestart = now.Add(time.Hour * 24)
+		e.nextClientRestart = now.Add(time.Hour * 2)
 	}
 	topics, err := e.client.Topics()
 	if err != nil {
