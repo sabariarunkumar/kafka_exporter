@@ -1,5 +1,6 @@
-FROM        quay.io/prometheus/busybox:latest
-MAINTAINER  Daniel Qian <qsj.daniel@gmail.com>
+FROM ubuntu:18.04
+RUN apt update && apt install -y build-essential ca-certificates
+WORKDIR /app
 
 COPY kafka_exporter /bin/kafka_exporter
 
